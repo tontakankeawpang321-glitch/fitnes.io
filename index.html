@@ -10,6 +10,10 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Leaflet CSS (OpenStreetMap) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
@@ -36,7 +40,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            border-radius: 1.5rem;
+            border-radius: 1rem;
             cursor: pointer;
             transition: all 0.3s ease;
             background: #ffffff;
@@ -66,6 +70,11 @@
             transition: transform 0.2s, box-shadow 0.2s;
         }
         .product-card:active { transform: scale(0.98); }
+        
+        /* ปรับ z-index ของแผนที่เพื่อไม่ให้บังส่วนอื่นๆ */
+        .leaflet-container {
+            z-index: 0; /* แก้ไขให้ Layer แผนที่ไม่บัง Popup */
+        }
     </style>
 </head>
 <body class="min-h-screen flex justify-center items-center p-0 md:p-4 bg-slate-200">
@@ -157,13 +166,26 @@
                 <div class="space-y-4">
                     <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
                         <i data-lucide="image" width="18" class="text-blue-500"></i>
-                        รูปสนาม / สิ่งอำนวยความสะดวก (1 รูป)
+                        รูปสนาม / สิ่งอำนวยความสะดวก (สูงสุด 3 รูป)
                     </label>
-                    <div class="flex justify-center">
-                        <div class="image-slot w-48 h-48" id="slot-0" onclick="triggerFileInput(0)">
-                            <i data-lucide="camera" class="text-blue-200 mb-1" width="24"></i>
-                            <p class="text-[8px] text-blue-300 font-bold uppercase">เพิ่มรูปภาพ</p>
+                    <div class="grid grid-cols-3 gap-3">
+                        <!-- Slot 0 -->
+                        <div class="image-slot w-full h-28" id="slot-0" onclick="triggerFileInput(0)">
+                            <i data-lucide="camera" class="text-blue-200 mb-1" width="20"></i>
+                            <p class="text-[8px] text-blue-300 font-bold uppercase">รูปที่ 1</p>
                             <input type="file" id="file-0" accept="image/*" class="hidden" onchange="handleFile(event, 0)">
+                        </div>
+                        <!-- Slot 1 -->
+                        <div class="image-slot w-full h-28" id="slot-1" onclick="triggerFileInput(1)">
+                            <i data-lucide="camera" class="text-blue-200 mb-1" width="20"></i>
+                            <p class="text-[8px] text-blue-300 font-bold uppercase">รูปที่ 2</p>
+                            <input type="file" id="file-1" accept="image/*" class="hidden" onchange="handleFile(event, 1)">
+                        </div>
+                        <!-- Slot 2 -->
+                        <div class="image-slot w-full h-28" id="slot-2" onclick="triggerFileInput(2)">
+                            <i data-lucide="camera" class="text-blue-200 mb-1" width="20"></i>
+                            <p class="text-[8px] text-blue-300 font-bold uppercase">รูปที่ 3</p>
+                            <input type="file" id="file-2" accept="image/*" class="hidden" onchange="handleFile(event, 2)">
                         </div>
                     </div>
                 </div>
@@ -235,6 +257,21 @@
                         </div>
                     </div>
 
+                    <!-- ส่วนแผนที่ในฟอร์ม -->
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 mb-2 block uppercase tracking-[0.1em]">ระบุพิกัดแผนที่ (ปักหมุด)</label>
+                        <div class="relative w-full h-48 rounded-2xl overflow-hidden border-2 border-slate-100">
+                            <div id="create-map" class="w-full h-full z-0"></div>
+                            <button type="button" onclick="getCurrentLocation()" class="absolute bottom-2 right-2 bg-white p-2 rounded-lg shadow-md z-[400] text-blue-600 hover:bg-blue-50" title="ตำแหน่งปัจจุบัน">
+                                <i data-lucide="crosshair" width="20"></i>
+                            </button>
+                        </div>
+                        <!-- Hidden Inputs เก็บค่าพิกัด -->
+                        <input type="hidden" name="lat" id="lat">
+                        <input type="hidden" name="lng" id="lng">
+                        <p class="text-[10px] text-slate-400 mt-1">* แตะที่แผนที่เพื่อเลื่อนหมุด</p>
+                    </div>
+
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="text-[10px] font-black text-slate-400 mb-2 block uppercase tracking-[0.1em]">ID LINE ติดต่อ</label>
@@ -264,17 +301,35 @@
         </div>
     </div>
 
+    <!-- Gallery Modal -->
+    <div id="gallery-modal" class="fixed inset-0 bg-black/95 z-[100] hidden flex flex-col fade-in">
+        <div class="p-4 flex justify-between items-center border-b border-white/10">
+            <h3 class="text-white font-bold">รูปภาพทั้งหมด</h3>
+            <button onclick="closeGallery()" class="text-white p-2 bg-white/10 rounded-full hover:bg-white/20"><i data-lucide="x"></i></button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 space-y-4" id="gallery-content">
+            <!-- Images go here -->
+        </div>
+    </div>
+
     <script>
-        // API URL Backend (Google Apps Script) - ใช้ตัวเดิมตามที่ขอ
+        // API URL Backend
         const API_URL = "https://script.google.com/macros/s/AKfycbyex7Wc7LDP5wBaKWd2ni_pY5WT_gifCCUROaoF7tKoLU6nkacu_sdLLG5bfh6f0QHE/exec";
 
         let state = {
             posts: [],
             currentView: 'home',
-            images: [null],
+            images: [null, null, null], // รองรับ 3 รูป
             filterCategory: 'ทั้งหมด',
             selectedPost: null,
-            isLoading: false
+            isLoading: false,
+            // Map States
+            createMap: null,
+            createMarker: null,
+            detailMap: null,
+            detailMarker: null,
+            // Detail Gallery
+            currentDetailImages: []
         };
 
         // เปลี่ยนหมวดหมู่เป็นกีฬา/สถานที่
@@ -294,7 +349,7 @@
             { label: 'ปิงปอง', icon: 'circle' }
         ];
 
-        // ข้อมูลจังหวัดและอำเภอ (เหมือนเดิม)
+        // ข้อมูลจังหวัดและอำเภอ
         const thaiLocations = {
             "กรุงเทพมหานคร": ["พระนคร", "ดุสิต", "หนองจอก", "บางรัก", "บางเขน", "บางกะปิ", "ปทุมวัน", "ป้อมปราบศัตรูพ่าย", "พระโขนง", "มีนบุรี", "ลาดกระบัง", "ยานนาวา", "สัมพันธวงศ์", "พญาไท", "ธนบุรี", "บางกอกใหญ่", "ห้วยขวาง", "คลองสาน", "ตลิ่งชัน", "บางกอกน้อย", "บางขุนเทียน", "ภาษีเจริญ", "หนองแขม", "ราษฎร์บูรณะ", "บางพลัด", "ดินแดง", "บึงกุ่ม", "สาทร", "บางซื่อ", "จตุจักร", "บางคอแหลม", "ประเวศ", "คลองเตย", "สวนหลวง", "จอมทอง", "ดอนเมือง", "ราชเทวี", "ลาดพร้าว", "วัฒนา", "บางแค", "หลักสี่", "สายไหม", "คันนายาว", "สะพานสูง", "วังทองหลาง", "คลองสามวา", "บางนา", "ทวีวัฒนา", "ทุ่งครุ", "บางบอน"],
             "สมุทรปราการ": ["เมืองสมุทรปราการ", "บางบ่อ", "บางพลี", "พระประแดง", "พระสมุทรเจดีย์", "บางเสาธง"],
@@ -333,20 +388,28 @@
         // Helper แปลงลิงก์ Google Drive
         function getDirectImage(url) {
             if (!url) {
-                // รูป Default เป็นธีมกีฬา
                 return 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?q=80&w=1000&auto=format&fit=crop';
             }
 
-            url = url.trim();
+            url = String(url).trim();
+
+            // Base64 ใช้ได้ทันที
+            if (url.startsWith('data:image')) {
+                return url;
+            }
+
+            // Google Drive thumbnail / uc
             let fileId = null;
 
-            if (url.includes('/d/')) {
-                const m = url.match(/\/d\/([^/]+)/);
+            // แบบ thumbnail?id=
+            if (url.includes('id=')) {
+                const m = url.match(/id=([^&]+)/);
                 if (m) fileId = m[1];
             }
 
-            if (!fileId && url.includes('id=')) {
-                const m = url.match(/id=([^&]+)/);
+            // แบบ /d/FILE_ID
+            if (!fileId && url.includes('/d/')) {
+                const m = url.match(/\/d\/([^/]+)/);
                 if (m) fileId = m[1];
             }
 
@@ -354,6 +417,7 @@
                 return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
             }
 
+            // URL ปกติ
             return url;
         }
 
@@ -366,12 +430,107 @@
                     targetView.classList.add('fade-in');
                 }
                 state.currentView = viewId;
-                if(viewId === 'detail') renderDetail(data);
+                
+                // Handle Map initializations with delay to ensure container is visible
+                if(viewId === 'create') {
+                    setTimeout(initCreateMap, 200);
+                }
+                if(viewId === 'detail') {
+                    renderDetail(data);
+                }
                 if(viewId === 'home') renderHome();
                 lucide.createIcons();
             },
             back: () => router.navigate('home')
         };
+
+        // --- MAP FUNCTIONS ---
+
+        function initCreateMap() {
+            if (!state.createMap) {
+                // Default: Bangkok
+                const defaultLat = 13.7563;
+                const defaultLng = 100.5018;
+
+                state.createMap = L.map('create-map').setView([defaultLat, defaultLng], 13);
+
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; OpenStreetMap contributors'
+                }).addTo(state.createMap);
+
+                // Add Click Event
+                state.createMap.on('click', function(e) {
+                    setCreateMarker(e.latlng.lat, e.latlng.lng);
+                });
+            }
+            
+            // Critical fix for map display issues
+            setTimeout(() => {
+                state.createMap.invalidateSize();
+            }, 100);
+        }
+
+        function setCreateMarker(lat, lng) {
+            if (state.createMarker) {
+                state.createMarker.setLatLng([lat, lng]);
+            } else {
+                state.createMarker = L.marker([lat, lng], {draggable: true}).addTo(state.createMap);
+                
+                // Update on drag
+                state.createMarker.on('dragend', function(e) {
+                    const pos = e.target.getLatLng();
+                    updateHiddenInputs(pos.lat, pos.lng);
+                });
+            }
+            updateHiddenInputs(lat, lng);
+        }
+
+        function updateHiddenInputs(lat, lng) {
+            document.getElementById('lat').value = lat;
+            document.getElementById('lng').value = lng;
+        }
+
+        function getCurrentLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(position => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    state.createMap.setView([lat, lng], 15);
+                    setCreateMarker(lat, lng);
+                }, () => {
+                    Swal.fire('ไม่สามารถระบุตำแหน่ง', 'กรุณาเปิด GPS หรืออนุญาตการเข้าถึง', 'error');
+                });
+            } else {
+                Swal.fire('Browser ไม่รองรับ', 'ไม่สามารถใช้งาน Geolocation ได้', 'error');
+            }
+        }
+
+        function initDetailMap(lat, lng) {
+            // Remove existing map if any (important for SPA)
+            if (state.detailMap) {
+                state.detailMap.remove();
+                state.detailMap = null;
+            }
+
+            if (!lat || !lng) return; // No map data
+
+            // Delay to ensure container is rendered and has size
+            setTimeout(() => {
+                state.detailMap = L.map('detail-map').setView([lat, lng], 15);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; OpenStreetMap contributors'
+                }).addTo(state.detailMap);
+                
+                L.marker([lat, lng]).addTo(state.detailMap);
+                
+                // Critical fix for map display
+                setTimeout(() => {
+                    state.detailMap.invalidateSize();
+                }, 100);
+            }, 200);
+        }
+
+        // --- END MAP FUNCTIONS ---
 
         function triggerFileInput(index) { document.getElementById(`file-${index}`).click(); }
 
@@ -388,7 +547,7 @@
             reader.onload = (e) => {
                 state.images[index] = e.target.result;
                 const slot = document.getElementById(`slot-${index}`);
-                slot.innerHTML = `<img src="${e.target.result}" alt="Preview"><button type="button" onclick="removeImage(event, ${index})" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg"><i data-lucide="x" width="14"></i></button>`;
+                slot.innerHTML = `<img src="${e.target.result}" alt="Preview" class="rounded-2xl"><button type="button" onclick="removeImage(event, ${index})" class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-lg transform scale-75 hover:scale-100"><i data-lucide="x" width="12"></i></button>`;
                 lucide.createIcons();
             };
             reader.readAsDataURL(file);
@@ -398,7 +557,7 @@
             e.stopPropagation();
             state.images[index] = null;
             const slot = document.getElementById(`slot-${index}`);
-            slot.innerHTML = `<i data-lucide="camera" class="text-blue-200 mb-1" width="24"></i><p class="text-[8px] text-blue-300 font-bold uppercase">เพิ่มรูปภาพ</p><input type="file" id="file-${index}" accept="image/*" class="hidden" onchange="handleFile(event, ${index})">`;
+            slot.innerHTML = `<i data-lucide="camera" class="text-blue-200 mb-1" width="20"></i><p class="text-[8px] text-blue-300 font-bold uppercase">รูปที่ ${index + 1}</p><input type="file" id="file-${index}" accept="image/*" class="hidden" onchange="handleFile(event, ${index})">`;
             lucide.createIcons();
         }
 
@@ -518,12 +677,23 @@
             if(!post) return router.back();
             
             const validImages = post.images.filter(i => i).map(url => getDirectImage(url));
+            // Store for gallery
+            state.currentDetailImages = validImages;
+            
             const wage = Number(post.wage) || 0;
+            const hasLocation = post.lat && post.lng;
 
             let imageLayout = `
-                <div class="flex h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide">
+                <div class="flex h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide relative">
                     ${validImages.length ? validImages.map(img => `<img src="${img}" class="min-w-full h-full object-cover snap-start" onerror="this.src='https://images.unsplash.com/photo-1579952363873-27f3bade9f55?q=80&w=1000&auto=format&fit=crop'">`).join('') : `<div class="min-w-full bg-slate-100 flex items-center justify-center text-slate-300">ไม่มีรูปภาพ</div>`}
                 </div>
+                
+                ${validImages.length > 0 ? `
+                <button onclick="openGallery()" class="absolute bottom-12 right-6 bg-white/90 backdrop-blur-md text-slate-800 text-[10px] font-bold px-3 py-2 rounded-xl shadow-lg hover:bg-white transition-all flex items-center gap-1.5 z-20 active:scale-95 border border-white/50">
+                    <i data-lucide="grid" width="14"></i>
+                    ดูรูปทั้งหมด (${validImages.length})
+                </button>
+                ` : ''}
             `;
 
             document.getElementById('detail-content').innerHTML = `
@@ -537,7 +707,7 @@
                     </button>
                     ${imageLayout}
                 </div>
-                <div class="p-8 space-y-8 -mt-10 bg-white rounded-t-[3rem] relative shadow-2xl">
+                <div class="p-8 space-y-8 -mt-10 bg-white rounded-t-[3rem] relative shadow-2xl z-10">
                     <div class="w-12 h-1.5 bg-slate-200 rounded-full mx-auto -mt-4 mb-4"></div>
                     <div>
                         <div class="flex gap-2 mb-4">
@@ -560,6 +730,17 @@
                             </div>
                         </div>
                     </div>
+                    
+                    ${hasLocation ? `
+                    <div class="space-y-3">
+                         <h4 class="font-bold text-slate-800 flex items-center gap-2"><i data-lucide="map" width="18" class="text-blue-500"></i> แผนที่</h4>
+                         <div id="detail-map" class="w-full h-48 rounded-2xl z-0 border border-slate-200 overflow-hidden"></div>
+                         <a href="https://www.google.com/maps/search/?api=1&query=${post.lat},${post.lng}" target="_blank" class="block text-center text-xs text-blue-500 font-bold hover:underline">
+                            เปิดใน Google Maps
+                         </a>
+                    </div>
+                    ` : ''}
+
                     <div class="space-y-4">
                         <h4 class="font-bold text-slate-800 flex items-center gap-2"><i data-lucide="info" width="18" class="text-blue-500"></i> สิ่งอำนวยความสะดวก / รายละเอียด</h4>
                         <p class="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap bg-slate-50 p-4 rounded-2xl border border-slate-100 font-medium">${escapeHTML(post.description || '-')}</p>
@@ -575,6 +756,31 @@
                 </div>
             `;
             lucide.createIcons();
+            
+            if(hasLocation) {
+                initDetailMap(post.lat, post.lng);
+            }
+        }
+
+        // Gallery Functions
+        function openGallery() {
+            const modal = document.getElementById('gallery-modal');
+            const content = document.getElementById('gallery-content');
+            
+            if(!state.currentDetailImages || state.currentDetailImages.length === 0) return;
+
+            content.innerHTML = state.currentDetailImages.map(img => `
+                <div class="rounded-2xl overflow-hidden shadow-lg border border-white/10">
+                    <img src="${img}" class="w-full object-cover">
+                </div>
+            `).join('');
+            
+            modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeGallery() {
+            document.getElementById('gallery-modal').classList.add('hidden');
         }
 
         // ฟังก์ชันยืนยันการลบ
@@ -653,8 +859,15 @@
                 state.posts = posts.map(p => {
                     let images = [];
                     if (p.images) {
-                        const raw = Array.isArray(p.images) ? p.images : String(p.images).split(',');
-                        images = raw.map(i => i.trim()).filter(i => i !== "");
+                      if (Array.isArray(p.images)) {
+                        images = p.images;
+                      } else {
+                        try {
+                          images = JSON.parse(p.images);
+                        } catch {
+                          images = String(p.images).split(',').map(i => i.trim());
+                        }
+                      }
                     }
 
                     return {
@@ -670,6 +883,8 @@
                         lineId: String(p.lineId || ''),
                         phone: String(p.phone || ''),
                         description: String(p.description || ''),
+                        lat: p.lat || '',
+                        lng: p.lng || '',
                         images: images
                     };
                 });
@@ -685,8 +900,8 @@
         document.getElementById('create-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            if (state.images.filter(i => i).length > 1) {
-                 Swal.fire('ใส่รูปได้แค่ 1 รูปครับ');
+            if (state.images.filter(i => i).length === 0) {
+                 Swal.fire('กรุณาใส่รูปอย่างน้อย 1 รูปครับ');
                  return;
             }
 
@@ -713,6 +928,8 @@
                 lineId: formData.get('lineId'),
                 phone: formData.get('phone'), 
                 description: formData.get('description'), 
+                lat: formData.get('lat'),
+                lng: formData.get('lng'),
                 images: [...state.images].filter(i => i)
             };
 
@@ -729,7 +946,19 @@
                 });
                 
                 e.target.reset();
-                state.images = [null];
+                state.images = [null, null, null];
+                state.createMarker = null; 
+                if(state.createMap) {
+                     state.createMap.setView([13.7563, 100.5018], 13); 
+                     state.createMap.eachLayer((layer) => {
+                         if(layer instanceof L.Marker) {
+                             state.createMap.removeLayer(layer);
+                         }
+                     });
+                }
+                // Reset image slots visually
+                for(let i=0; i<3; i++) removeImage({stopPropagation:()=>{}}, i);
+                
                 document.getElementById('create-district').innerHTML = '<option value="">เลือกพื้นที่</option>';
                 document.getElementById('create-district').disabled = true;
                 router.navigate('home');
